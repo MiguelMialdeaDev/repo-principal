@@ -138,39 +138,54 @@ jobs:
               errorDetails = 'Error details not available';
             }
 
-            // Extraer solo los errores relevantes
+            // Extraer solo los errores relevantes (primeras 5 líneas con 'error:')
             const relevantErrors = errorDetails
               .split('\n')
               .filter(line => line.includes('error:') || line.includes('No value passed') || line.includes('e: file://'))
-              .slice(0, 10)
+              .slice(0, 5)
               .join('\n');
 
-            let message = `## ❌ Breaking Change Detected in \`${{ matrix.repo }}\`\n\n`;
+            const prDiff = process.env.PR_DIFF || 'Diff not available';
 
-            if (buildFailed) {
-              message += `### 🔴 Build Failed\n\n`;
-              message += '```\n' + (relevantErrors || 'Build compilation failed') + '\n```\n\n';
-            }
+            // Construir mensaje con template literals adecuados
+            const message = `## ❌ Breaking Change Detected in \`${{ matrix.repo }}\`
 
-            if (testFailed) {
-              message += `### 🧪 Tests Failed\n\n`;
-            }
+${buildFailed ? `### 🔴 Build Failed
 
-            message += `### 📝 Changes in repo-principal that caused this:\n\n`;
-            message += '<details><summary>View changes</summary>\n\n';
-            message += '```diff\n' + (process.env.PR_DIFF || 'Diff not available').substring(0, 1000) + '\n```\n';
-            message += '</details>\n\n';
+**Error:**
+\`\`\`
+${relevantErrors || 'Build compilation failed'}
+\`\`\`
+` : ''}
+${testFailed ? '### 🧪 Tests Failed\n\n' : ''}
+### 📝 What changed in repo-principal?
 
-            message += `### 💡 Recommendation\n`;
-            message += `The change in repo-principal is incompatible with ${{ matrix.repo }}. `;
-            message += `Consider:\n`;
-            message += `- Adding default values to new parameters\n`;
-            message += `- Using @Deprecated for gradual migration\n`;
-            message += `- Updating ${{ matrix.repo }} to handle the change\n\n`;
+<details>
+<summary>Click to view the changes that caused this issue</summary>
 
-            message += `[View full logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n`;
+\`\`\`diff
+${prDiff.substring(0, 800)}
+\`\`\`
 
-            github.rest.issues.createComment({
+</details>
+
+### 💡 How to fix this
+
+**Option 1:** Add default values to new parameters
+\`\`\`kotlin
+// Instead of: val age: Int
+// Use: val age: Int = 0
+\`\`\`
+
+**Option 2:** Update \`${{ matrix.repo }}\` to include the new parameter
+
+**Option 3:** Use \`@Deprecated\` annotation for gradual migration
+
+---
+📋 [View full build logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+`;
+
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,

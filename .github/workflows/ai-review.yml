@@ -1,0 +1,143 @@
+name: AI Code Review Kotlin
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  devin-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff (only Kotlin files)
+        id: diff
+        run: |
+          git diff origin/main...HEAD -- '*.kt' '*.kts' > pr_changes.diff
+          echo "Diff size: $(wc -l < pr_changes.diff) lines"
+
+      - name: Extract changed data classes and sealed classes
+        run: |
+          echo "## Changed Models" > changed_summary.txt
+          grep -E "data class|sealed class|interface|@Composable" pr_changes.diff >> changed_summary.txt || echo "No models changed" >> changed_summary.txt
+
+      - name: Analyze with Devin API
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+        run: |
+          # Convertir diff a base64 para enviar en JSON
+          DIFF_BASE64=$(base64 -w 0 pr_changes.diff)
+
+          # Llamar a Devin API
+          curl -X POST https://api.devin.ai/analyze \
+            -H "Authorization: Bearer $DEVIN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "diff": "'"$DIFF_BASE64"'",
+              "language": "kotlin",
+              "framework": "android",
+              "prompt": "Analiza estos cambios en código Kotlin Android y detecta BREAKING CHANGES:\n\n1. **Data classes**: Propiedades añadidas sin valor por defecto, cambios en orden de parámetros\n2. **Sealed classes**: Nuevas subclases que romperán when exhaustivos\n3. **Interfaces**: Nuevos métodos sin implementación por defecto\n4. **@Composable functions**: Cambios en parámetros sin defaults\n5. **Extension functions**: Cambios en signature\n6. **Public APIs**: Métodos eliminados o renombrados\n\nPara cada breaking change, indica:\n- 📄 Archivo y línea\n- 🔴 Tipo de cambio y por qué es breaking\n- 💥 Impacto potencial en repos dependientes\n- ✅ Sugerencia de cómo hacerlo non-breaking\n\nSi no hay breaking changes, indica claramente: ✅ No breaking changes detected.\n\nSé específico y técnico."
+            }' \
+            -o analysis.json
+
+      - name: Parse analysis response
+        id: parse
+        run: |
+          # Extraer la respuesta del JSON
+          RESPONSE=$(jq -r '.response' analysis.json)
+          echo "analysis<<EOF" >> $GITHUB_OUTPUT
+          echo "$RESPONSE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Comment results on PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const analysis = fs.readFileSync('analysis.json', 'utf8');
+            const parsed = JSON.parse(analysis);
+
+            const comment = `## 🤖 Devin AI Analysis - Kotlin Breaking Changes
+
+            ${parsed.response || 'No analysis available'}
+
+            ---
+
+            ### 📋 Validation Status
+            Los sub-repos están siendo validados automáticamente por el workflow \`validate-pr\`.
+
+            Revisa los checks de CI para ver si algún país falló al compilar con estos cambios.
+
+            ### 📚 Recordatorios
+            - ✅ Siempre agregar propiedades con valores por defecto
+            - ✅ Usar \`@Deprecated\` antes de eliminar APIs públicas
+            - ✅ Documentar breaking changes en CHANGELOG.md
+            - ✅ Incrementar versión MAJOR si hay breaking changes
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ai-analysis
+          path: |
+            analysis.json
+            pr_changes.diff
+            changed_summary.txt
+          retention-days: 30
+
+  # Fallback si Devin no está disponible - usar Claude API
+  claude-review-fallback:
+    runs-on: ubuntu-latest
+    if: failure()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        run: git diff origin/main...HEAD -- '*.kt' '*.kts' > pr_changes.diff
+
+      - name: Analyze with Claude API
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          DIFF_CONTENT=$(cat pr_changes.diff)
+
+          curl -X POST https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "claude-3-5-sonnet-20241022",
+              "max_tokens": 4096,
+              "messages": [{
+                "role": "user",
+                "content": "Analiza este diff de código Kotlin Android y detecta breaking changes:\n\n'"$DIFF_CONTENT"'"
+              }]
+            }' \
+            -o claude_analysis.json
+
+      - name: Comment Claude analysis
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const analysis = JSON.parse(fs.readFileSync('claude_analysis.json'));
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🤖 Claude AI Analysis (Fallback)\n\n${analysis.content[0].text}`
+            });

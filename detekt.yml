@@ -1,0 +1,40 @@
+build:
+  maxIssues: 0
+
+style:
+  MagicNumber:
+    active: false
+
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+
+  ForbiddenComment:
+    active: true
+    values:
+      - 'FIXME:'
+      - 'STOPSHIP:'
+      - 'TODO:'
+
+naming:
+  FunctionNaming:
+    active: true
+    functionPattern: '[a-z][a-zA-Z0-9]*'
+    excludeClassPattern: '@Composable'
+
+complexity:
+  LongMethod:
+    active: true
+    threshold: 60
+
+  ComplexMethod:
+    active: true
+    threshold: 15
+
+# Custom rules para forzar buenas prácticas
+potential-bugs:
+  UnsafeCallOnNullableType:
+    active: true
+
+  IteratorNotThrowingNoSuchElementException:
+    active: true

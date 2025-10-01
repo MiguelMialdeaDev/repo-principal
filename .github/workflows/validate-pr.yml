@@ -1,0 +1,151 @@
+name: Validate Breaking Changes Android
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-main-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo principal
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          cache-read-only: false
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build all shared modules
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      - name: Publish to local maven
+        run: ./gradlew publishToMavenLocal --no-daemon
+
+      - name: Upload shared libraries
+        uses: actions/upload-artifact@v3
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/org/
+          retention-days: 1
+
+  test-country-repos:
+    needs: build-main-repo
+    strategy:
+      matrix:
+        repo: [repo-pais-A, repo-pais-B, repo-pais-C]
+      fail-fast: false  # Continuar aunque falle uno
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout country repo
+        uses: actions/checkout@v3
+        with:
+          repository: org/${{ matrix.repo }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Download shared libs
+        uses: actions/download-artifact@v3
+        with:
+          name: shared-libs
+          path: ~/.m2/repository/com/org/
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          cache-read-only: false
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Update dependencies to SNAPSHOT
+        run: |
+          # Actualizar versión en todos los build.gradle.kts
+          find . -name "build.gradle.kts" -exec sed -i 's/com\.org:shared-[^:]*:[^"]*"/com.org:shared-models:1.0.0-SNAPSHOT"/g' {} \;
+          find . -name "build.gradle.kts" -exec sed -i 's/com\.org:shared-components:[^"]*"/com.org:shared-components:1.0.0-SNAPSHOT"/g' {} \;
+          find . -name "build.gradle.kts" -exec sed -i 's/com\.org:shared-screens:[^"]*"/com.org:shared-screens:1.0.0-SNAPSHOT"/g' {} \;
+
+      - name: Run Lint
+        id: lint
+        run: ./gradlew lint --no-daemon
+        continue-on-error: true
+
+      - name: Run Unit Tests
+        id: test
+        run: ./gradlew test --no-daemon
+        continue-on-error: true
+
+      - name: Build APK
+        id: build
+        run: ./gradlew assembleDebug --no-daemon
+        continue-on-error: true
+
+      - name: Report status
+        if: steps.build.outcome == 'failure' || steps.test.outcome == 'failure'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const buildFailed = '${{ steps.build.outcome }}' === 'failure';
+            const testFailed = '${{ steps.test.outcome }}' === 'failure';
+
+            let message = '❌ **Breaking change detected in `${{ matrix.repo }}`**\n\n';
+
+            if (buildFailed) {
+              message += '- ❌ Build failed\n';
+            }
+            if (testFailed) {
+              message += '- ❌ Tests failed\n';
+            }
+
+            message += '\nLa integración de los cambios del repo principal causó errores.';
+            message += '\n\n**Recomendación:** Revisar los logs y ajustar los cambios para mantener compatibilidad.';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-logs-${{ matrix.repo }}
+          path: |
+            **/build/reports/
+            **/build/outputs/logs/
+          retention-days: 5
+
+  summary:
+    needs: test-country-repos
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Post summary
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ **Validación de breaking changes completada**\n\nRevisa los checks anteriores para ver el estado de cada país.'
+            });

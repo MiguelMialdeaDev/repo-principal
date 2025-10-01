@@ -52,7 +52,7 @@ jobs:
       - name: Checkout country repo
         uses: actions/checkout@v3
         with:
-          repository: org/${{ matrix.repo }}
+          repository: MiguelMialdeaDev/${{ matrix.repo }}
           token: ${{ secrets.PAT_TOKEN }}
 
       - name: Set up JDK 17

@@ -89,7 +89,7 @@ afterEvaluate {
                 pom {
                     name.set("Shared Screens")
                     description.set("Shared screens and layouts for multi-country Android apps")
-                    url.set("https://github.com/org/repo-principal")
+                    url.set("https://github.com/MiguelMialdeaDev/repo-principal")
                 }
             }
         }
@@ -97,7 +97,7 @@ afterEvaluate {
         repositories {
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/org/repo-principal")
+                url = uri("https://maven.pkg.github.com/MiguelMialdeaDev/repo-principal")
                 credentials {
                     username = System.getenv("GITHUB_ACTOR")
                         ?: providers.gradleProperty("gpr.user").orNull

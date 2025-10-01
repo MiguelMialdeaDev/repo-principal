@@ -8,6 +8,8 @@ package com.org.models
  * - Hacer nullable con valor por defecto null
  *
  * Esto previene breaking changes en los repos dependientes.
+ *
+ * Test: trigger workflow
  */
 data class UserModel(
     val id: String,

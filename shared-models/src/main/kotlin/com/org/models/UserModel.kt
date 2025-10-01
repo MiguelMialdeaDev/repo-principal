@@ -11,6 +11,7 @@ package com.org.models
  */
 data class UserModel(
     val id: String,
+    val age: Int,  // ⚠️ BREAKING CHANGE: Campo añadido sin default en medio
     val name: String,
     val email: String
 )

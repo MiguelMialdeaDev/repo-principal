@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 fun CustomButton(
     text: String,
     onClick: () -> Unit,
+    icon: @Composable () -> Unit,  // ❌ BREAKING: Nuevo parámetro sin default
     modifier: Modifier = Modifier,
     isLoading: Boolean = false,
     enabled: Boolean = true
